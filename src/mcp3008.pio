@@ -1,0 +1,28 @@
+; MCP3008 (or MCP3208) conversions, one after another, for as long as
+; commands keep coming (src/mcp3008.c feeds them by DMA, round and round).
+;
+; Each command, 32 bits MSB first: 7 bits for Din (the start bit, 1 for
+; single-ended, the channel's D2 D1 D0, then two don't-cares while the chip
+; finishes sampling and sends its null bit), then the result's bit count less
+; one (5 bits). The result goes to the RX FIFO, in the low bits.
+;
+; SPI mode 0, as the chip wants it: Din changes while CLK is low and the chip
+; takes it on the rising edge; the chip changes Dout on the falling edge and it
+; is read on the next rising one. A CLK period is two cycles; CS stays high for
+; two cycles between conversions. A conversion takes 18 + 2 x bits cycles.
+
+.program mcp3008
+.side_set 2                         ; bit 0: CS (low = selected), bit 1: CLK
+
+.wrap_target
+    pull block          side 0b01   ; between conversions: CS high, CLK low
+    set x, 6            side 0b00   ; CS low; 7 bits to send
+command:
+    out pins, 1         side 0b00
+    jmp x-- command     side 0b10   ; rising edge: the chip takes the bit
+    out y, 5            side 0b00   ; falling edge: the chip puts out the result's first bit
+result:
+    in pins, 1          side 0b10   ; rising edge: take it
+    jmp y-- result      side 0b00
+    push block          side 0b01   ; CS high: done
+.wrap
